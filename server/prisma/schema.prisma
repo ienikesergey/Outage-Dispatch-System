@@ -1,0 +1,157 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:../dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/client"
+}
+
+model Substation {
+  id           Int           @id @default(autoincrement())
+  name         String
+  voltageClass String?       @map("voltage_class")
+  district     String?
+  cells        Cell[]
+  events       OutageEvent[]
+}
+
+model Tp {
+  id           Int           @id @default(autoincrement())
+  name         String
+  voltageClass String?       @map("voltage_class")
+  capacity     String?
+  
+  // Active/Current state
+  feederId     Int?          @map("feeder_id")
+  feeder       Line?         @relation("LineToTp", fields: [feederId], references: [id])
+  
+  // Normal (base) state
+  normalFeederId Int?        @map("normal_feeder_id")
+  
+  outgoingLines Line[]       @relation("TpToLine")
+  events       OutageEvent[]
+  eventTps     EventTp[]
+}
+
+// Feeder model removed
+
+model Cell {
+  id           Int           @id @default(autoincrement())
+  name         String
+  voltageClass String?       @map("voltage_class")
+  substationId Int           @map("substation_id")
+  substation   Substation    @relation(fields: [substationId], references: [id])
+  
+  feeders      Line[]        // Feeders starting from this cell
+  events       OutageEvent[]
+}
+
+model Line {
+  id           Int         @id @default(autoincrement())
+  name         String
+  voltageClass String?     @map("voltage_class")
+  lineType     String?     @map("line_type")
+  
+  // Active/Current Source
+  sourceCellId Int?        @map("source_cell_id")
+  sourceCell   Cell?       @relation(fields: [sourceCellId], references: [id])
+  
+  sourceTpId   Int?        @map("source_tp_id")
+  sourceTp     Tp?         @relation("TpToLine", fields: [sourceTpId], references: [id])
+
+  // Normal (base) Source
+  normalSourceCellId Int?  @map("normal_source_cell_id")
+  normalSourceTpId   Int?  @map("normal_source_tp_id")
+
+  suppliedTps  Tp[]        @relation("LineToTp")
+  
+  eventLines   EventLine[]
+}
+
+
+model EventLine {
+  eventId Int         @map("event_id")
+  lineId  Int         @map("line_id")
+  event   OutageEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  line    Line        @relation(fields: [lineId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, lineId])
+  @@map("EventLine")
+}
+
+model EventTp {
+  eventId Int         @map("event_id")
+  tpId    Int         @map("tp_id")
+  event   OutageEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  tp      Tp          @relation(fields: [tpId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, tpId])
+  @@map("EventTp")
+}
+
+model OutageReason {
+  id          Int    @id @default(autoincrement())
+  category    String
+  subcategory String
+}
+
+model OutageEvent {
+  id Int @id @default(autoincrement())
+
+  substationId      Int?
+  substation        Substation? @relation(fields: [substationId], references: [id])
+  cellId            Int?
+  cell              Cell?       @relation(fields: [cellId], references: [id])
+  tpId              Int?
+  tp                Tp?         @relation(fields: [tpId], references: [id])
+  
+  // feederId removed
+  
+  // Implicit relation removed, referencing EventLine
+  eventLines EventLine[]
+  eventTps   EventTp[]
+
+  type              String
+  reasonCategory    String  @map("reason_category")
+  reasonSubcategory String  @map("reason_subcategory")
+  
+  // Using String to match legacy DB format (avoid cast errors)
+  timeStart         String  @map("time_start")
+  timeEnd           String? @map("time_end")
+  
+  measuresPlanned   String? @map("measures_planned")
+  deadlineDate      String? @map("deadline_date")
+  measuresTaken     String? @map("measures_taken")
+  
+  // Using Int to match legacy DB (0/1)
+  isCompleted       Int     @default(0) @map("is_completed")
+  
+  comment           String?
+
+  createdAt         String  @default("") @map("created_at") // Default empty, handle in code
+
+  // Switching Support
+  isSwitching       Int     @default(0) @map("is_switching")
+  switchingDetails  String? @map("switching_details") // JSON string: { objectId, objectType, fromId, toId }
+}
+
+model TopologySwitch {
+  id          Int      @id @default(autoincrement())
+  objectId    Int      @map("object_id")
+  objectType  String   @map("object_type") // "TP" or "LINE"
+  fromSourceId Int?    @map("from_source_id")
+  toSourceId   Int?    @map("to_source_id")
+  timestamp   DateTime @default(now())
+  eventId     Int?     @map("event_id")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  password  String
+  name      String
+  role      String   @default("READER") 
+  createdAt DateTime @default(now())
+}
